@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-package:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build, test, and package
+        run: |
+          export DEVELOPER_DIR="$(xcode-select -p)"
+          swift build
+          swift test
+          ./Tools/package-release.sh
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: colleague-clock-ci-${{ github.sha }}
+          path: |
+            dist/*/*.zip
+            dist/*/*.dmg
+          retention-days: 7

@@ -1,0 +1,21 @@
+# SwiftPM / Xcode build outputs
+.build/
+.swiftpm/
+DerivedData/
+
+# Packaged artifacts
+dist/
+Tools/tzdb-src/
+
+# Local workspace state
+.home/
+.DS_Store
+*.swp
+*.tmp
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.xcworkspace/
+*.xcodeproj/
+xcuserdata/
