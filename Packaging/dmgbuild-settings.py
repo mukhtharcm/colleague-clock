@@ -3,6 +3,7 @@ import os
 app_path = defines["app_path"]
 app_name = defines["app_name"]
 icon_path = defines["icon_path"]
+background_path = defines["background_path"]
 
 volume_name = app_name
 format = "UDZO"
@@ -21,7 +22,7 @@ icon_size = 128
 text_size = 14
 label_pos = "bottom"
 window_rect = ((120, 620), (640, 360))
-background = "builtin-arrow"
+background = background_path
 icon = icon_path
 icon_locations = {
     f"{app_name}.app": (170, 170),

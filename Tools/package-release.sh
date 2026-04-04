@@ -25,6 +25,7 @@ zip_path="$dist_root/$zip_name"
 dmg_path="$dist_root/$dmg_name"
 plist_template="$project_root/Packaging/Info.plist.template"
 icon_source_path="$project_root/Packaging/${icon_file_name}.icns"
+dmg_background_script_path="$project_root/Tools/generate-dmg-background.swift"
 dmgbuild_settings_path="$project_root/Packaging/dmgbuild-settings.py"
 dmgbuild_venv="$project_root/.build/dmgbuild-venv"
 dmgbuild_bin="$dmgbuild_venv/bin/dmgbuild"
@@ -72,6 +73,11 @@ fi
 if [[ ! -f "$icon_source_path" ]]; then
     echo "Missing app icon: $icon_source_path" >&2
     echo "Run ./Tools/generate-app-icon.sh or add ${icon_file_name}.icns under Packaging/." >&2
+    exit 1
+fi
+
+if [[ ! -f "$dmg_background_script_path" ]]; then
+    echo "Missing DMG background generator: $dmg_background_script_path" >&2
     exit 1
 fi
 
@@ -131,12 +137,15 @@ ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_path"
 
 echo "Creating dmg image..."
 ensure_dmgbuild
+dmg_background_path="$dist_root/${app_name// /-}-dmg-background.png"
+swift "$dmg_background_script_path" "$dmg_background_path"
 "$dmgbuild_cmd" \
     -s "$dmgbuild_settings_path" \
     "$app_name" \
     "$dmg_path" \
     -D app_path="$app_path" \
     -D icon_path="$icon_source_path" \
+    -D background_path="$dmg_background_path" \
     -D app_name="$app_name" >/dev/null
 
 echo

@@ -30,7 +30,7 @@ Build a local app bundle, ZIP, and DMG:
 ```
 
 Artifacts are written to `dist/<version>/`.
-The DMG is generated with `dmgbuild`, so it includes an `Applications` shortcut and styled Finder layout without briefly opening a Finder window during packaging.
+The DMG is generated with `dmgbuild`, so it includes an `Applications` shortcut, a custom branded background, and styled Finder layout without briefly opening a Finder window during packaging.
 
 The first run may install `dmgbuild` into a project-local cache under `.build/`.
 
@@ -88,5 +88,6 @@ APP_SPECIFIC_PASSWORD="app-specific-password" \
 ## Project Notes
 
 - App icon source: `./Tools/generate-app-icon.sh`
+- DMG background source: `./Tools/generate-dmg-background.swift`
 - Bundled tzdb version: `2026a`
 - Refresh tzdb with: `./Tools/update-tzdb.sh 2026a`
