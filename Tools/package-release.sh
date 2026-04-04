@@ -14,6 +14,8 @@ version="${VERSION:-0.1.0}"
 build_number="${BUILD_NUMBER:-1}"
 developer_dir="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 swiftpm_home="$project_root/.home"
+codesign_timestamp="${CODESIGN_TIMESTAMP:-1}"
+dmgbuild_version="${DMGBUILD_VERSION:-1.6.7}"
 
 dist_root="$project_root/dist/$version"
 app_path="$dist_root/$app_name.app"
@@ -23,6 +25,26 @@ zip_path="$dist_root/$zip_name"
 dmg_path="$dist_root/$dmg_name"
 plist_template="$project_root/Packaging/Info.plist.template"
 icon_source_path="$project_root/Packaging/${icon_file_name}.icns"
+dmgbuild_settings_path="$project_root/Packaging/dmgbuild-settings.py"
+dmgbuild_venv="$project_root/.build/dmgbuild-venv"
+dmgbuild_bin="$dmgbuild_venv/bin/dmgbuild"
+
+ensure_dmgbuild() {
+    if command -v dmgbuild >/dev/null 2>&1; then
+        dmgbuild_cmd="$(command -v dmgbuild)"
+        return
+    fi
+
+    if [[ -x "$dmgbuild_bin" ]]; then
+        dmgbuild_cmd="$dmgbuild_bin"
+        return
+    fi
+
+    echo "Installing dmgbuild $dmgbuild_version..."
+    python3 -m venv "$dmgbuild_venv"
+    "$dmgbuild_venv/bin/python" -m pip install --quiet "dmgbuild==$dmgbuild_version"
+    dmgbuild_cmd="$dmgbuild_bin"
+}
 
 export DEVELOPER_DIR="$developer_dir"
 export SWIFTPM_MODULECACHE_OVERRIDE="$project_root/.build/module-cache"
@@ -86,11 +108,18 @@ fi
 
 if [[ -n "${signing_identity:-}" ]]; then
     echo "Signing app bundle with identity: $signing_identity"
+
+    if [[ "$codesign_timestamp" == "0" ]]; then
+        timestamp_args=(--timestamp=none)
+    else
+        timestamp_args=(--timestamp)
+    fi
+
     codesign \
         --force \
         --deep \
         --options runtime \
-        --timestamp \
+        "${timestamp_args[@]}" \
         --sign "$signing_identity" \
         "$app_path"
 fi
@@ -101,12 +130,14 @@ echo "Creating zip archive..."
 ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_path"
 
 echo "Creating dmg image..."
-hdiutil create \
-    -volname "$app_name" \
-    -srcfolder "$app_path" \
-    -ov \
-    -format UDZO \
-    "$dmg_path" >/dev/null
+ensure_dmgbuild
+"$dmgbuild_cmd" \
+    -s "$dmgbuild_settings_path" \
+    "$app_name" \
+    "$dmg_path" \
+    -D app_path="$app_path" \
+    -D icon_path="$icon_source_path" \
+    -D app_name="$app_name" >/dev/null
 
 echo
 echo "Release artifacts:"

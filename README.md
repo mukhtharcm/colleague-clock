@@ -30,6 +30,9 @@ Build a local app bundle, ZIP, and DMG:
 ```
 
 Artifacts are written to `dist/<version>/`.
+The DMG is generated with `dmgbuild`, so it includes an `Applications` shortcut and styled Finder layout without briefly opening a Finder window during packaging.
+
+The first run may install `dmgbuild` into a project-local cache under `.build/`.
 
 Useful overrides:
 
