@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum EditorMode: Identifiable {
     case add
@@ -41,6 +42,8 @@ struct MainMenuView: View {
     let onOpenApp: (() -> Void)?
 
     @State private var editorMode: EditorMode?
+    @State private var draggedEntryID: UUID?
+    @State private var dropTargetEntryID: UUID?
 
     private var isCompact: Bool {
         !fillsWindow
@@ -73,8 +76,23 @@ struct MainMenuView: View {
                             ClockRow(
                                 entry: entry,
                                 compact: isCompact,
+                                isDragged: draggedEntryID == entry.id,
+                                isDropTarget: dropTargetEntryID == entry.id,
                                 onEdit: { editorMode = .edit(entry) },
                                 onDelete: { store.delete(entry) }
+                            )
+                            .onDrag {
+                                draggedEntryID = entry.id
+                                return NSItemProvider(object: NSString(string: entry.id.uuidString))
+                            }
+                            .onDrop(
+                                of: [UTType.plainText],
+                                delegate: ClockRowDropDelegate(
+                                    targetEntry: entry,
+                                    store: store,
+                                    draggedEntryID: $draggedEntryID,
+                                    dropTargetEntryID: $dropTargetEntryID
+                                )
                             )
                         }
                     }
@@ -158,6 +176,8 @@ struct MainMenuView: View {
 private struct ClockRow: View {
     let entry: ClockEntry
     let compact: Bool
+    let isDragged: Bool
+    let isDropTarget: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -188,6 +208,11 @@ private struct ClockRow: View {
                 }
 
                 HStack(spacing: compact ? 4 : 6) {
+                    Image(systemName: "line.3.horizontal")
+                        .font(compact ? .caption : .body)
+                        .foregroundStyle(.tertiary)
+                        .help("Drag to reorder")
+
                     Button(action: onEdit) {
                         Image(systemName: "pencil")
                     }
@@ -203,7 +228,53 @@ private struct ClockRow: View {
             }
             .padding(compact ? 10 : 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: 14))
+            .opacity(isDragged ? 0.72 : 1)
         }
+    }
+
+    private var backgroundColor: Color {
+        if isDropTarget {
+            return Color.accentColor.opacity(compact ? 0.18 : 0.14)
+        }
+
+        return Color.primary.opacity(0.05)
+    }
+}
+
+@MainActor
+private struct ClockRowDropDelegate: DropDelegate {
+    let targetEntry: ClockEntry
+    let store: TimeZoneStore
+    @Binding var draggedEntryID: UUID?
+    @Binding var dropTargetEntryID: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [UTType.plainText])
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedEntryID else {
+            return
+        }
+
+        dropTargetEntryID = targetEntry.id
+        store.moveEntry(withID: draggedEntryID, over: targetEntry.id)
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetEntryID == targetEntry.id {
+            dropTargetEntryID = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dropTargetEntryID = nil
+        draggedEntryID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
