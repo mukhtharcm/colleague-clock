@@ -62,19 +62,6 @@ final class TimeZoneStore: ObservableObject {
         persist()
     }
 
-    func moveEntry(withID entryID: UUID, over targetID: UUID) {
-        guard
-            let fromIndex = entries.firstIndex(where: { $0.id == entryID }),
-            let targetIndex = entries.firstIndex(where: { $0.id == targetID }),
-            fromIndex != targetIndex
-        else {
-            return
-        }
-
-        let destination = fromIndex < targetIndex ? targetIndex + 1 : targetIndex
-        moveEntries(fromOffsets: IndexSet(integer: fromIndex), toOffset: destination)
-    }
-
     private func load() {
         if let data = try? Data(contentsOf: storageURL) {
             if decodeEntries(from: data) {

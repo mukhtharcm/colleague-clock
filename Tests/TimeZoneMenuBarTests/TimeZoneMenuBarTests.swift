@@ -66,9 +66,7 @@ final class TimeZoneMenuBarTests: XCTestCase {
         store.save(name: "Mina", timeZoneIdentifier: "Europe/London", editing: nil)
         store.save(name: "Jon", timeZoneIdentifier: "America/New_York", editing: nil)
 
-        let movedEntryID = try XCTUnwrap(store.entries.last?.id)
-        let targetEntryID = try XCTUnwrap(store.entries.first?.id)
-        store.moveEntry(withID: movedEntryID, over: targetEntryID)
+        store.moveEntries(fromOffsets: IndexSet(integer: 2), toOffset: 0)
 
         let reloadedStore = TimeZoneStore(fileManager: fileManager, defaults: defaults, storageURL: storageURL)
         XCTAssertEqual(reloadedStore.entries.map(\.name), ["Jon", "Asha", "Mina"])

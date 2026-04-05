@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 private enum EditorMode: Identifiable {
     case add
@@ -42,8 +41,6 @@ struct MainMenuView: View {
     let onOpenApp: (() -> Void)?
 
     @State private var editorMode: EditorMode?
-    @State private var draggedEntryID: UUID?
-    @State private var dropTargetEntryID: UUID?
 
     private var isCompact: Bool {
         !fillsWindow
@@ -64,53 +61,13 @@ struct MainMenuView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: isCompact ? 12 : 16) {
-            header
-
-            if store.entries.isEmpty {
-                emptyState
+        Group {
+            if fillsWindow {
+                windowContent
             } else {
-                ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(store.entries) { entry in
-                            ClockRow(
-                                entry: entry,
-                                compact: isCompact,
-                                isDragged: draggedEntryID == entry.id,
-                                isDropTarget: dropTargetEntryID == entry.id,
-                                onEdit: { editorMode = .edit(entry) },
-                                onDelete: { store.delete(entry) }
-                            )
-                            .onDrag {
-                                draggedEntryID = entry.id
-                                return NSItemProvider(object: NSString(string: entry.id.uuidString))
-                            }
-                            .onDrop(
-                                of: [UTType.plainText],
-                                delegate: ClockRowDropDelegate(
-                                    targetEntry: entry,
-                                    store: store,
-                                    draggedEntryID: $draggedEntryID,
-                                    dropTargetEntryID: $dropTargetEntryID
-                                )
-                            )
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-                .frame(maxHeight: fillsWindow ? .infinity : 280)
+                compactContent
             }
-
-            footer
         }
-        .padding(fillsWindow ? 20 : 12)
-        .frame(
-            minWidth: preferredWidth,
-            idealWidth: preferredWidth,
-            maxWidth: fillsWindow ? .infinity : preferredWidth,
-            maxHeight: fillsWindow ? .infinity : nil,
-            alignment: .topLeading
-        )
         .sheet(item: $editorMode) { mode in
             EntryEditorView(
                 title: mode.title,
@@ -118,6 +75,81 @@ struct MainMenuView: View {
                 existingEntry: mode.entry
             )
         }
+    }
+
+    private var compactContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+
+            if store.entries.isEmpty {
+                compactEmptyState
+            } else {
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(store.entries) { entry in
+                            CompactClockRow(
+                                entry: entry
+                            )
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .frame(maxHeight: 280)
+            }
+
+            compactFooter
+        }
+        .padding(12)
+        .frame(width: preferredWidth, alignment: .topLeading)
+    }
+
+    private var windowContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
+
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Manage People")
+                        .font(.headline)
+
+                    Text("Reorder by dragging rows. Changes save automatically.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Add Person") {
+                    editorMode = .add
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+
+            if store.entries.isEmpty {
+                windowEmptyState
+            } else {
+                List {
+                    ForEach(store.entries) { entry in
+                        WindowClockRow(
+                            entry: entry,
+                            onEdit: { editorMode = .edit(entry) },
+                            onDelete: { store.delete(entry) }
+                        )
+                    }
+                    .onMove(perform: store.moveEntries)
+                }
+                .listStyle(.inset(alternatesRowBackgrounds: false))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(20)
+        .frame(
+            minWidth: preferredWidth,
+            idealWidth: preferredWidth,
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
     }
 
     private var header: some View {
@@ -135,21 +167,40 @@ struct MainMenuView: View {
         }
     }
 
-    private var emptyState: some View {
+    private var compactEmptyState: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("No time zones added yet.")
-                .font(isCompact ? .subheadline.weight(.semibold) : .headline)
+                .font(.subheadline.weight(.semibold))
 
-            Text("Add a person, choose their time zone, and their local time will appear here.")
-                .font(isCompact ? .caption : .subheadline)
+            Text("Add a person and their local time will appear here.")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(isCompact ? 12 : 14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    private var footer: some View {
+    private var windowEmptyState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("No people added yet.")
+                .font(.headline)
+
+            Text("Add someone to start tracking their local time here and in the menu bar.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Button("Add First Person") {
+                editorMode = .add
+            }
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var compactFooter: some View {
         HStack {
             if let onOpenApp {
                 Button("Open App") {
@@ -173,108 +224,87 @@ struct MainMenuView: View {
     }
 }
 
-private struct ClockRow: View {
+private struct CompactClockRow: View {
     let entry: ClockEntry
-    let compact: Bool
-    let isDragged: Bool
-    let isDropTarget: Bool
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.name)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
+
+                    Text(entry.zoneLabel(for: context.date, compact: true))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 10)
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(entry.timeLabel(for: context.date))
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .monospacedDigit()
+
+                    Text(entry.dateLabel(for: context.date))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+}
+
+private struct WindowClockRow: View {
+    let entry: ClockEntry
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            HStack(alignment: .top, spacing: compact ? 10 : 12) {
-                VStack(alignment: .leading, spacing: compact ? 4 : 6) {
-                    Text(entry.name)
-                        .font((compact ? Font.headline : .title3).weight(.semibold))
-                        .lineLimit(1)
+            HStack(spacing: 12) {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.tertiary)
 
-                    Text(entry.zoneLabel(for: context.date, compact: compact))
-                        .font(compact ? .caption : .caption2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(entry.name)
+                        .font(.headline.weight(.semibold))
+
+                    Text(entry.zoneLabel(for: context.date))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
-                Spacer()
+                Spacer(minLength: 12)
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 3) {
                     Text(entry.timeLabel(for: context.date))
-                        .font(.system(compact ? .subheadline : .headline, design: .rounded).weight(.semibold))
+                        .font(.system(.body, design: .rounded).weight(.semibold))
                         .monospacedDigit()
 
                     Text(entry.dateLabel(for: context.date))
-                        .font(compact ? .caption2 : .caption)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: compact ? 4 : 6) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(compact ? .caption : .body)
-                        .foregroundStyle(.tertiary)
-                        .help("Drag to reorder")
+                HStack(spacing: 8) {
+                    Button("Edit", action: onEdit)
 
-                    Button(action: onEdit) {
-                        Image(systemName: "pencil")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Edit")
-
-                    Button(role: .destructive, action: onDelete) {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Delete")
+                    Button("Delete", role: .destructive, action: onDelete)
                 }
+                .buttonStyle(.borderless)
             }
-            .padding(compact ? 10 : 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(backgroundColor, in: RoundedRectangle(cornerRadius: 14))
-            .opacity(isDragged ? 0.72 : 1)
+            .padding(.vertical, 4)
+            .contextMenu {
+                Button("Edit", action: onEdit)
+                Button("Delete", role: .destructive, action: onDelete)
+            }
         }
-    }
-
-    private var backgroundColor: Color {
-        if isDropTarget {
-            return Color.accentColor.opacity(compact ? 0.18 : 0.14)
-        }
-
-        return Color.primary.opacity(0.05)
-    }
-}
-
-@MainActor
-private struct ClockRowDropDelegate: DropDelegate {
-    let targetEntry: ClockEntry
-    let store: TimeZoneStore
-    @Binding var draggedEntryID: UUID?
-    @Binding var dropTargetEntryID: UUID?
-
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [UTType.plainText])
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let draggedEntryID else {
-            return
-        }
-
-        dropTargetEntryID = targetEntry.id
-        store.moveEntry(withID: draggedEntryID, over: targetEntry.id)
-    }
-
-    func dropExited(info: DropInfo) {
-        if dropTargetEntryID == targetEntry.id {
-            dropTargetEntryID = nil
-        }
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        dropTargetEntryID = nil
-        draggedEntryID = nil
-        return true
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
     }
 }
