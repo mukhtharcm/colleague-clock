@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Cache dmgbuild environment
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .build/dmgbuild-venv
           key: ${{ runner.os }}-dmgbuild-${{ hashFiles('Tools/package-release.sh', 'Packaging/dmgbuild-settings.py') }}
@@ -49,14 +49,28 @@ jobs:
             version="0.1.0"
           fi
 
+          release_tag="v$version"
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
 
       - name: Warm dmgbuild environment
         run: |
+          if [[ -x .build/dmgbuild-venv/bin/dmgbuild ]] && ! .build/dmgbuild-venv/bin/dmgbuild --version >/dev/null 2>&1; then
+            rm -rf .build/dmgbuild-venv
+          fi
+
           if [[ ! -x .build/dmgbuild-venv/bin/dmgbuild ]]; then
             python3 -m venv .build/dmgbuild-venv
             .build/dmgbuild-venv/bin/python -m pip install "dmgbuild==1.6.7"
           fi
+
+      - name: Generate icon assets
+        run: ./Tools/generate-app-icon.sh
 
       - name: Import Developer ID certificate
         if: env.HAS_SIGNING_SECRETS == 'true'
@@ -97,7 +111,7 @@ jobs:
         run: ./Tools/notarize-release.sh
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: colleague-clock-release-${{ steps.meta.outputs.version }}
           path: |
@@ -112,18 +126,68 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.meta.outputs.version }}
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
         run: |
           app_name="${APP_NAME:-Colleague Clock}"
           zip_name="${app_name// /-}-${VERSION}.zip"
           dmg_name="${app_name// /-}-${VERSION}.dmg"
+          release_args=()
 
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "dist/$VERSION/$zip_name" "dist/$VERSION/$dmg_name" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "dist/$VERSION/$zip_name" "dist/$VERSION/$dmg_name" \
+          if [[ "$VERSION" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
               --title "$app_name $VERSION" \
               --generate-notes
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$app_name $VERSION" \
+              --generate-notes \
+              "${release_args[@]}"
           fi
+
+          gh release upload "$RELEASE_TAG" "dist/$VERSION/$zip_name" "dist/$VERSION/$dmg_name" --clobber
+
+      - name: Update Homebrew tap
+        if: env.HAS_TAP_TOKEN == 'true' && !contains(steps.meta.outputs.version, '-')
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          APP_NAME: ${{ env.APP_NAME }}
+        run: |
+          app_name="${APP_NAME:-Colleague Clock}"
+          zip_name="${app_name// /-}-${VERSION}.zip"
+          zip_path="dist/$VERSION/$zip_name"
+          sha256="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/mukhtharcm/homebrew-tap.git" "$RUNNER_TEMP/homebrew-tap"
+          cd "$RUNNER_TEMP/homebrew-tap"
+
+          VERSION="$VERSION" SHA256="$sha256" python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          cask_path = Path("Casks/colleague-clock.rb")
+          content = cask_path.read_text()
+          content = re.sub(r'version ".*"', f'version "{os.environ["VERSION"]}"', content, count=1)
+          content = re.sub(r'sha256 ".*"', f'sha256 "{os.environ["SHA256"]}"', content, count=1)
+          cask_path.write_text(content)
+          PY
+
+          git config user.name "mukhtharcm"
+          git config user.email "56378562+mukhtharcm@users.noreply.github.com"
+          git add Casks/colleague-clock.rb
+
+          if git diff --cached --quiet; then
+            echo "Homebrew tap already up to date."
+            exit 0
+          fi
+
+          git commit -m "Update colleague-clock to ${VERSION}"
+          git push
 
       - name: Write release summary
         env:
@@ -146,33 +210,3 @@ jobs:
             echo "- Bundle identifier: $bundle_identifier"
             echo "- Artifact status: $status"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Update Homebrew tap
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, 'beta') && !contains(github.ref, 'alpha') && env.HAS_TAP_TOKEN == 'true'
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          app_name="${APP_NAME:-Colleague Clock}"
-          zip_name="${app_name// /-}-${VERSION}.zip"
-          sha=$(shasum -a 256 "dist/$VERSION/$zip_name" | awk '{print $1}')
-
-          tap_dir="$(mktemp -d)"
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/mukhtharcm/homebrew-tap.git" "$tap_dir"
-
-          cask="$tap_dir/Casks/colleague-clock.rb"
-          python3 -c "
-          import re, sys
-          text = open('$cask').read()
-          text = re.sub(r'version \"[^\"]+\"', 'version \"$VERSION\"', text)
-          text = re.sub(r'sha256 \"[^\"]+\"', 'sha256 \"$sha\"', text)
-          open('$cask','w').write(text)
-          "
-
-          cd "$tap_dir"
-          git config user.name  "mukhtharcm"
-          git config user.email "56378562+mukhtharcm@users.noreply.github.com"
-          git add Casks/colleague-clock.rb
-          git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "Update colleague-clock to $VERSION"
-          git push origin main
